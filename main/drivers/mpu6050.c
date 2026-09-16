@@ -1,8 +1,21 @@
 #include "mpu6050.h"
 
+#include "esp_log.h"
+
+static const char *TAG = "MPU-6050";
+
 #define MPU6050_ADDR 0x68
 
 #define PWR_MGMT_1 0x6B
+
+static esp_err_t reg_read(mpu6050_t *device, uint8_t reg, uint8_t *value) {
+  if (device == NULL || device->i2c_device == NULL || value == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  return i2c_master_transmit_receive(device->i2c_device, &reg, 1, value, 1,
+                                     100);
+}
 
 static esp_err_t reg_write(mpu6050_t *device, uint8_t reg, uint8_t val) {
   if (device == NULL || device->i2c_device == NULL) {
@@ -32,6 +45,7 @@ esp_err_t mpu6050_init(i2c_master_bus_handle_t bus_handle, mpu6050_t *device) {
     return err;
   }
 
+  // 4.28 Register 107 – Power Management 1
   err = reg_write(device, PWR_MGMT_1, 0x00);
   if (err != ESP_OK) {
     return err;
