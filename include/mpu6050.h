@@ -15,4 +15,6 @@ typedef struct {
 
 esp_err_t mpu6050_init(i2c_master_bus_handle_t bus_handle, mpu6050_t *device);
 
+esp_err_t mpu6050_deinit(mpu6050_t *device);
+
 esp_err_t mpu6050_measure(mpu6050_t *device, accel_t *accel);
