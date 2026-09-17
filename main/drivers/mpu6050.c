@@ -1,9 +1,5 @@
 #include "mpu6050.h"
 
-#include "esp_log.h"
-
-static const char *TAG = "MPU-6050";
-
 #define MPU6050_ADDR 0x68
 
 #define PWR_MGMT_1 0x6B
@@ -79,7 +75,6 @@ esp_err_t mpu6050_deinit(mpu6050_t *device) {
   if (device->i2c_device != NULL) {
     esp_err_t err = i2c_master_bus_rm_device(device->i2c_device);
     if (err != ESP_OK) {
-      ESP_LOGE(TAG, "Failed to remove I2C device: %s", esp_err_to_name(err));
       return err;
     }
     device->i2c_device = NULL;
