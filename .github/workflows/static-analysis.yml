@@ -1,0 +1,54 @@
+name: Firmware Security Analysis
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  static_analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run Cppcheck Analysis
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32
+          command: |
+            apt-get update
+            apt-get install -y cppcheck
+
+            cppcheck \
+              --enable=all \
+              --inconclusive \
+              --force \
+              --suppress=missingIncludeSystem \
+              --error-exitcode=1 \
+              --template="{file}:{line}:{severity}:{id}:{message}" \
+              main/ 2> cppcheck_report.txt
+
+            echo "Cppcheck completed."
+            cat cppcheck_report.txt
+
+      - name: Upload cppcheck report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cppcheck-report
+          path: cppcheck_report.txt
+
+      - name: Fail on errors or warnings
+        run: |
+          if grep -E "^.+:(error|warning):" cppcheck_report.txt; then
+            echo "FAIL: cppcheck found errors or warnings. Fix before merging."
+            exit 1
+          fi
+
+          echo "PASS: No errors or warnings found."
