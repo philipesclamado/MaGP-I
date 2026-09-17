@@ -4,7 +4,6 @@ idf_component_register(
         "drivers/rtos.c"
         "drivers/nmea_parser.c"
         "drivers/bmp390.c"
-        "drivers/mlx90393.c"
         "drivers/mpu6050.c"
 
     INCLUDE_DIRS
