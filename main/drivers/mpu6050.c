@@ -9,6 +9,8 @@ static const char *TAG = "MPU-6050";
 #define PWR_MGMT_1 0x6B
 #define ACCEL_CONFIG 0x1C
 
+#define ACCEL_XOUT_H 0x3B
+
 static esp_err_t reg_read(mpu6050_t *device, uint8_t reg, uint8_t *value) {
   if (device == NULL || device->i2c_device == NULL || value == NULL) {
     return ESP_ERR_INVALID_ARG;
@@ -66,6 +68,27 @@ esp_err_t mpu6050_init(i2c_master_bus_handle_t bus_handle, mpu6050_t *device) {
   if (err != ESP_OK) {
     return err;
   }
+
+  return ESP_OK;
+}
+
+esp_err_t mpu6050_measure(mpu6050_t *device, accel_t *accel) {
+  if (device == NULL || device->i2c_device == NULL || accel == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  uint8_t reg = ACCEL_XOUT_H;
+  uint8_t data[6];
+
+  esp_err_t err = i2c_master_transmit_receive(device->i2c_device, &reg, 1, data,
+                                              sizeof(data), 100);
+  if (err != ESP_OK) {
+    return err;
+  }
+
+  accel->x = (int16_t)((data[0] << 8) | data[1]);
+  accel->y = (int16_t)((data[2] << 8) | data[3]);
+  accel->z = (int16_t)((data[4] << 8) | data[5]);
 
   return ESP_OK;
 }
