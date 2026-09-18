@@ -2,10 +2,12 @@
 
 #define MPU6050_ADDR 0x68
 
-#define PWR_MGMT_1 0x6B
+#define GYRO_CONFIG 0x1B
 #define ACCEL_CONFIG 0x1C
+#define PWR_MGMT_1 0x6B
 
 #define ACCEL_XOUT_H 0x3B
+#define GYRO_XOUT_H 0x43
 
 static esp_err_t reg_read(mpu6050_t *device, uint8_t reg, uint8_t *value) {
   if (device == NULL || device->i2c_device == NULL || value == NULL) {
@@ -35,6 +37,12 @@ static esp_err_t mpu6050_config(mpu6050_t *device) {
 
   // ± 8g
   err = reg_write(device, ACCEL_CONFIG, 0x10);
+  if (err != ESP_OK) {
+    return err;
+  }
+
+  // FS_SEL = 3; ± 2000 °/s
+  err = reg_write(device, GYRO_CONFIG, 0x18);
   if (err != ESP_OK) {
     return err;
   }
@@ -83,14 +91,15 @@ esp_err_t mpu6050_deinit(mpu6050_t *device) {
   return ESP_OK;
 }
 
-esp_err_t mpu6050_measure(mpu6050_t *device, accel_t *accel) {
+esp_err_t mpu6050_measure(mpu6050_t *device, accel_t *accel, gyro_t *gyro) {
   if (device == NULL || device->i2c_device == NULL || accel == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
 
   uint8_t reg = ACCEL_XOUT_H;
-  uint8_t data[6];
+  uint8_t data[14];
 
+  // Burst read all 14 registers in a single burst
   esp_err_t err = i2c_master_transmit_receive(device->i2c_device, &reg, 1, data,
                                               sizeof(data), 100);
   if (err != ESP_OK) {
@@ -100,6 +109,10 @@ esp_err_t mpu6050_measure(mpu6050_t *device, accel_t *accel) {
   accel->x = (int16_t)((data[0] << 8) | data[1]);
   accel->y = (int16_t)((data[2] << 8) | data[3]);
   accel->z = (int16_t)((data[4] << 8) | data[5]);
+
+  gyro->x = (int16_t)((data[8] << 8) | data[9]);
+  gyro->y = (int16_t)((data[10] << 8) | data[11]);
+  gyro->z = (int16_t)((data[12] << 8) | data[13]);
 
   return ESP_OK;
 }
