@@ -1,9 +1,5 @@
 #include "mpu6050.h"
 
-#include "esp_log.h"
-
-static const char *TAG = "MPU-6050";
-
 #define MPU6050_ADDR 0x68
 
 #define PWR_MGMT_1 0x6B
@@ -67,6 +63,21 @@ esp_err_t mpu6050_init(i2c_master_bus_handle_t bus_handle, mpu6050_t *device) {
   err = mpu6050_config(device);
   if (err != ESP_OK) {
     return err;
+  }
+
+  return ESP_OK;
+}
+
+esp_err_t mpu6050_deinit(mpu6050_t *device) {
+  if (device == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (device->i2c_device != NULL) {
+    esp_err_t err = i2c_master_bus_rm_device(device->i2c_device);
+    if (err != ESP_OK) {
+      return err;
+    }
+    device->i2c_device = NULL;
   }
 
   return ESP_OK;
