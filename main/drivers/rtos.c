@@ -64,19 +64,57 @@ static void i2c_deinit(void) {
 static void flight_task(void *arg) {
   (void)arg;
 
-  esp_err_t err = mpu6050_init(s_i2c_bus, &s_mpu6050);
+  esp_err_t err = bmp390_init(s_i2c_bus, &s_bmp390);
   if (err != ESP_OK) {
-    ESP_LOGE("MPU-6050", "initialization failed: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "BMP390 initialization failed: %s", esp_err_to_name(err));
+    goto cleanup;
+  }
+  err = mpu6050_init(s_i2c_bus, &s_mpu6050);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "MPU-6050 initialization failed: %s", esp_err_to_name(err));
     goto cleanup;
   }
 
-  ESP_LOGI(TAG, "Master flight control core successfully spawned on Core 1.");
+  ESP_LOGI(TAG, "Flight task started");
+
+  TickType_t last_wake = xTaskGetTickCount();
+  const TickType_t loop_period = pdMS_TO_TICKS(10); // 100 Hz
+  uint32_t loop_count = 0;
+
+  float pressure;
+  float temperature;
+  accel_t accel;
+  gyro_t gyro;
 
   while (true) {
     // Dynamic Multi-rate polling loop
-    vTaskDelay(pdMS_TO_TICKS(10)); // Temporary placeholder delay
-  }
+    // 1. Enforce precise periodic execution timing
+    vTaskDelayUntil(&last_wake, loop_period);
 
+    err = mpu6050_measure(&s_mpu6050, &accel, &gyro);
+    if (err != ESP_OK) {
+      ESP_LOGW(TAG, "MPU-6050 read failed: %s", esp_err_to_name(err));
+      continue; // Skip this iteration's math loop if data is corrupted
+    }
+
+    if ((loop_count % 2) == 0) {
+      err = bmp390_read(&s_bmp390, &pressure, &temperature);
+      if (err != ESP_OK) {
+        ESP_LOGW(TAG, "BMP390 read failed: %s", esp_err_to_name(err));
+      }
+    }
+
+    if ((loop_count % 20) == 0) {
+      ESP_LOGI(TAG,
+               "A [%.3f %.3f %.3f] g | "
+               "G [%.2f %.2f %.2f] dps | "
+               "P %.2f Pa",
+               accel.x / 4096.0f, accel.y / 4096.0f, accel.z / 4096.0f,
+               gyro.x / 16.4f, gyro.y / 16.4f, gyro.z / 16.4f, pressure);
+    }
+
+    loop_count++;
+  }
 cleanup:
   i2c_deinit();
   s_flight_task = NULL;

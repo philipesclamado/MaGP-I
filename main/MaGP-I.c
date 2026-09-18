@@ -1,5 +1,7 @@
 #include "main.h"
 
+#include "rtos.h"
+
 /**
  * @brief GPS Event Handler
  *
@@ -49,4 +51,6 @@ void app_main(void) {
   nmea_parser_remove_handler(nmea_hdl, gps_event_handler);
   /* deinit NMEA parser library */
   nmea_parser_deinit(nmea_hdl);
+
+  rtos_init();
 }
