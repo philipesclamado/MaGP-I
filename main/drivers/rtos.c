@@ -2,6 +2,7 @@
 
 #include "bmp390.h"
 #include "mlx90393.h"
+#include "mpu6050.h"
 
 #include "driver/i2c_master.h"
 #include "esp_log.h"
@@ -37,11 +38,8 @@ static TaskHandle_t s_flight_task = NULL;
 static TaskHandle_t s_sensor_task = NULL;
 static i2c_master_bus_handle_t s_i2c_bus = NULL;
 static bmp390_t s_bmp390;
+static mpu6050_t s_mpu6050;
 static mlx90393_t s_mlx90393;
-
-/* -------------------------------------------------------------------------- */
-/* I2C                                                                        */
-/* -------------------------------------------------------------------------- */
 
 static esp_err_t i2c_init(void) {
   const i2c_master_bus_config_t config = {
@@ -66,9 +64,9 @@ static void i2c_deinit(void) {
 static void flight_task(void *arg) {
   (void)arg;
 
-  esp_err_t err = mlx90393_init(&s_mlx90393, s_i2c_bus);
+  esp_err_t err = mpu6050_init(s_i2c_bus, &s_mpu6050);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "BMP390 initialization failed: %s", esp_err_to_name(err));
+    ESP_LOGE("MPU-6050", "initialization failed: %s", esp_err_to_name(err));
     goto cleanup;
   }
 
@@ -84,72 +82,6 @@ cleanup:
   s_flight_task = NULL;
   vTaskDelete(NULL);
 }
-
-/* -------------------------------------------------------------------------- */
-/* Sensor task                                                                */
-/* -------------------------------------------------------------------------- */
-
-// static void sensor_task(void *arg)
-// {
-//   (void)arg;
-
-//   esp_err_t err = i2c_init();
-
-//   if (err != ESP_OK)
-//   {
-//     ESP_LOGE(TAG, "I2C initialization failed: %s", esp_err_to_name(err));
-
-//     goto cleanup;
-//   }
-
-//   err = bmp390_init(s_i2c_bus, &s_bmp390);
-
-//   if (err != ESP_OK)
-//   {
-//     ESP_LOGE(TAG, "BMP390 initialization failed: %s", esp_err_to_name(err));
-
-//     goto cleanup;
-//   }
-
-//   ESP_LOGI(TAG, "BMP390 task started at %d Hz", SENSOR_RATE_HZ);
-
-//   /*
-//    * Keep the task on a fixed 25 Hz schedule.
-//    *
-//    * vTaskDelayUntil() avoids accumulating the execution time of
-//    * bmp390_read() and logging into the next period.
-//    */
-//   TickType_t last_wake = xTaskGetTickCount();
-
-//   while (true)
-//   {
-//     float pressure_hpa = 0.0f;
-//     float temperature_c = 0.0f;
-
-//     err = bmp390_read(&s_bmp390, &pressure_hpa, &temperature_c);
-
-//     if (err == ESP_OK)
-//     {
-//       ESP_LOGI(TAG, "Pressure: %.2f hPa | Temperature: %.2f C", pressure_hpa,
-//                temperature_c);
-//     }
-//     else
-//     {
-//       ESP_LOGW(TAG, "BMP390 read failed: %s", esp_err_to_name(err));
-//     }
-
-//     vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(SENSOR_PERIOD_MS));
-//   }
-
-// cleanup:
-
-//   bmp390_deinit(&s_bmp390);
-//   dei2c_init();
-
-//   s_sensor_task = NULL;
-
-//   vTaskDelete(NULL);
-// }
 
 esp_err_t rtos_init(void) {
   if (s_sensor_task != NULL) {
