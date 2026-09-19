@@ -2,23 +2,44 @@
 
 #include "esp_log.h"
 
-static esp_err_t reg_read(mlx90393_t *device, uint8_t reg, uint8_t *value) {
-  if (device == NULL || device->i2c_device == NULL || value == NULL) {
-    return ESP_ERR_INVALID_ARG;
+static esp_err_t mlx90393_read(mlx90393_t *sensor, uint8_t reg,
+                               uint16_t *value) {
+  uint8_t tx[2] = {0x50, // RR
+                   (uint8_t)(reg << 2)};
+
+  uint8_t rx[3];
+
+  esp_err_t ret = i2c_master_transmit_receive(sensor->i2c_device, tx,
+                                              sizeof(tx), rx, sizeof(rx), 100);
+
+  if (ret != ESP_OK) {
+    return ret;
   }
 
-  return i2c_master_transmit_receive(device->i2c_device, &reg, 1, value, 1,
-                                     100);
+  // rx[0] = status
+  // rx[1] = register MSB
+  // rx[2] = register LSB
+  *value = ((uint16_t)rx[1] << 8) | rx[2];
+
+  return ESP_OK;
 }
 
-static esp_err_t reg_write(mlx90393_t *device, uint8_t reg, uint8_t val) {
-  if (device == NULL || device->i2c_device == NULL) {
-    return ESP_ERR_INVALID_ARG;
+static esp_err_t mlx90393_write(mlx90393_t *sensor, uint8_t reg,
+                                uint16_t value) {
+  uint8_t tx[4] = {0x60, // WR
+                   (uint8_t)(value >> 8), (uint8_t)(value & 0xFF),
+                   (uint8_t)(reg << 2)};
+
+  uint8_t status;
+
+  esp_err_t ret = i2c_master_transmit_receive(sensor->i2c_device, tx,
+                                              sizeof(tx), &status, 1, 100);
+
+  if (ret != ESP_OK) {
+    return ret;
   }
 
-  uint8_t data[2] = {reg, val};
-
-  return i2c_master_transmit(device->i2c_device, data, sizeof(data), 100);
+  return ESP_OK;
 }
 
 static esp_err_t mlx90393_command(mlx90393_t *sensor, uint8_t command,
@@ -56,6 +77,25 @@ esp_err_t mlx90393_init(i2c_master_bus_handle_t bus_handle,
   if (err != ESP_OK) {
     return err;
   }
+
+  uint16_t reg00;
+  uint16_t reg02;
+
+  err = mlx90393_read(device, 0x00, &reg00);
+  if (err != ESP_OK) {
+    ESP_LOGE("MLX90393", "Failed to read register 0x00: %s",
+             esp_err_to_name(err));
+    return err;
+  }
+
+  err = mlx90393_read(device, 0x02, &reg02);
+  if (err != ESP_OK) {
+    ESP_LOGE("MLX90393", "Failed to read register 0x02: %s",
+             esp_err_to_name(err));
+    return err;
+  }
+
+  ESP_LOGI("MLX90393", "Config: REG00=0x%04X REG02=0x%04X", reg00, reg02);
 
   return ESP_OK;
 }
