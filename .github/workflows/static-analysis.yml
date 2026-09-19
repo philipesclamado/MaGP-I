@@ -1,20 +1,20 @@
-name: Firmware Security Analysis
+name: Static Analysis
 
 on:
-  pull_request:
-    branches: ["main"]
+  workflow_call:
 
 jobs:
   static_analysis:
+    name: Static analysis
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Run Cppcheck Analysis
+      - name: Run Cppcheck analysis
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v6.1
