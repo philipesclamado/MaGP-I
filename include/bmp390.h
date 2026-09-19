@@ -34,4 +34,5 @@ esp_err_t bmp390_init(i2c_master_bus_handle_t bus_handle, bmp390_t *dev);
 
 esp_err_t bmp390_deinit(bmp390_t *dev);
 
-esp_err_t bmp390_read(bmp390_t *dev, float *pressure_hpa, float *temperature_c);
+esp_err_t bmp390_measure(bmp390_t *dev, float *pressure_hpa,
+                         float *temperature_c);

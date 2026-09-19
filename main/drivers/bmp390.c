@@ -41,13 +41,12 @@ static const char *TAG = "bmp390";
 /*
  * PWR_CTRL:
  *
- * mode = normal/forced
- * temp_en = 1
- * press_en = 1
+ * bits 1:0 = pressure + temperature enable
+ * bits 5:4 = operating mode
  */
 #define BMP390_PWR_PRESS_TEMP 0x03U
 #define BMP390_MODE_FORCED 0x01U
-#define BMP390_MODE_NORMAL 0x30U
+#define BMP390_MODE_NORMAL 0x03U
 
 /*
  * OSR:
@@ -58,9 +57,11 @@ static const char *TAG = "bmp390";
 #define BMP390_OSR_PRESS_X4_TEMP_X1 0x02U
 
 /*
- * 25 Hz.
+ * ODR configuration.
+ *
+ * In normal mode this produces a new pressure/temperature pair at 50 Hz.
  */
-#define BMP390_ODR_25HZ 0x03U
+#define BMP390_ODR_50HZ 0x02U
 
 /*
  * No IIR filter.
@@ -69,8 +70,6 @@ static const char *TAG = "bmp390";
 
 #define BMP390_CALIB_LENGTH 21U
 #define BMP390_DATA_LENGTH 6U
-
-#define BMP390_READ_TIMEOUT_MS 20U
 
 /* -------------------------------------------------------------------------- */
 /* I2C                                                                        */
@@ -90,7 +89,10 @@ static esp_err_t write_reg(bmp390_t *dev, uint8_t reg, uint8_t value) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  uint8_t data[2] = {reg, value};
+  uint8_t data[2] = {
+      reg,
+      value,
+  };
 
   return i2c_master_transmit(dev->i2c_dev, data, sizeof(data), 100);
 }
@@ -119,7 +121,7 @@ static uint32_t u24_le(const uint8_t *p) {
 
 static void read_calibration(bmp390_t *dev, const uint8_t *data) {
   /*
-   * These are the exact BMP390 NVM coefficient types.
+   * BMP390 NVM coefficient types.
    *
    * T1, T2, P5 and P6 are unsigned.
    * T3, P3, P4, P7, P8, P10 and P11 are signed 8-bit.
@@ -144,13 +146,12 @@ static void read_calibration(bmp390_t *dev, const uint8_t *data) {
 
   /*
    * Bosch floating-point coefficient conversion.
-   *
-   * PAR_T1 = NVM_PAR_T1 / 2^-8
-   * PAR_T2 = NVM_PAR_T2 / 2^30
-   * PAR_T3 = NVM_PAR_T3 / 2^48
    */
+
   dev->par_t1 = (double)nvm_t1 / 0.00390625;
+
   dev->par_t2 = (double)nvm_t2 / 1073741824.0;
+
   dev->par_t3 = (double)nvm_t3 / 281474976710656.0;
 
   dev->par_p1 = ((double)nvm_p1 - 16384.0) / 1048576.0;
@@ -181,9 +182,6 @@ static void read_calibration(bmp390_t *dev, const uint8_t *data) {
 /* -------------------------------------------------------------------------- */
 
 static double compensate_temperature(bmp390_t *dev, uint32_t uncomp_temp) {
-  /*
-   * This follows Bosch's reference implementation directly.
-   */
   const double partial_data1 = (double)uncomp_temp - dev->par_t1;
 
   const double partial_data2 = partial_data1 * dev->par_t2;
@@ -194,10 +192,6 @@ static double compensate_temperature(bmp390_t *dev, uint32_t uncomp_temp) {
 }
 
 static double compensate_pressure(const bmp390_t *dev, uint32_t uncomp_press) {
-  /*
-   * This follows Bosch's reference implementation directly.
-   */
-
   const double t = dev->t_lin;
 
   const double t2 = t * t;
@@ -244,7 +238,8 @@ esp_err_t bmp390_init(i2c_master_bus_handle_t bus_handle, bmp390_t *dev) {
     return err;
   }
 
-  /* Verify chip. */
+  /* Verify chip ID. */
+
   uint8_t chip_id = 0;
 
   err = read_u8(dev, BMP390_REG_CHIP_ID, &chip_id);
@@ -261,22 +256,25 @@ esp_err_t bmp390_init(i2c_master_bus_handle_t bus_handle, bmp390_t *dev) {
   }
 
   /*
-   * Reset.
-   *
-   * Give the sensor enough time to finish the reset before reading
-   * calibration data.
+   * Software reset.
    */
+
   err = write_reg(dev, BMP390_REG_CMD, BMP390_CMD_SOFT_RESET);
 
   if (err != ESP_OK) {
     goto fail;
   }
 
+  /*
+   * Allow reset to complete.
+   */
+
   vTaskDelay(pdMS_TO_TICKS(10));
 
   /*
    * Read factory calibration.
    */
+
   uint8_t calib[BMP390_CALIB_LENGTH];
 
   err = read_reg(dev, BMP390_REG_CALIB, calib, sizeof(calib));
@@ -290,6 +288,7 @@ esp_err_t bmp390_init(i2c_master_bus_handle_t bus_handle, bmp390_t *dev) {
   /*
    * Pressure x4, temperature x1.
    */
+
   err = write_reg(dev, BMP390_REG_OSR, BMP390_OSR_PRESS_X4_TEMP_X1);
 
   if (err != ESP_OK) {
@@ -297,17 +296,19 @@ esp_err_t bmp390_init(i2c_master_bus_handle_t bus_handle, bmp390_t *dev) {
   }
 
   /*
-   * 25 Hz output data rate.
+   * A fresh pressure/temperature pair is available at 50 Hz.
    */
-  err = write_reg(dev, BMP390_REG_ODR, BMP390_ODR_25HZ);
+
+  err = write_reg(dev, BMP390_REG_ODR, BMP390_ODR_50HZ);
 
   if (err != ESP_OK) {
     goto fail;
   }
 
   /*
-   * No sensor-side IIR filter.
+   * No IIR filter.
    */
+
   err = write_reg(dev, BMP390_REG_CONFIG, BMP390_CONFIG_NO_FILTER);
 
   if (err != ESP_OK) {
@@ -315,12 +316,12 @@ esp_err_t bmp390_init(i2c_master_bus_handle_t bus_handle, bmp390_t *dev) {
   }
 
   /*
-   * Enable pressure and temperature.
-   *
-   * Leave the sensor in sleep mode here.
-   * bmp390_read() starts each measurement explicitly.
+   * Enable pressure and temperature in normal mode.  The flight task can
+   * now read a completed sample without waiting for a conversion.
    */
-  err = write_reg(dev, BMP390_REG_PWR_CTRL, BMP390_PWR_PRESS_TEMP);
+
+  err = write_reg(dev, BMP390_REG_PWR_CTRL,
+                  BMP390_PWR_PRESS_TEMP | (BMP390_MODE_NORMAL << 4));
 
   if (err != ESP_OK) {
     goto fail;
@@ -328,9 +329,12 @@ esp_err_t bmp390_init(i2c_master_bus_handle_t bus_handle, bmp390_t *dev) {
 
   dev->initialized = true;
 
+  ESP_LOGI(TAG, "BMP390 initialized");
+
   return ESP_OK;
 
 fail:
+
   if (dev->i2c_dev != NULL) {
     i2c_master_bus_rm_device(dev->i2c_dev);
     dev->i2c_dev = NULL;
@@ -340,11 +344,11 @@ fail:
 }
 
 /* -------------------------------------------------------------------------- */
-/* Read                                                                       */
+/* Measurement */
 /* -------------------------------------------------------------------------- */
 
-esp_err_t bmp390_read(bmp390_t *dev, float *pressure_hpa,
-                      float *temperature_c) {
+esp_err_t bmp390_measure(bmp390_t *dev, float *pressure_hpa,
+                         float *temperature_c) {
   if (dev == NULL || pressure_hpa == NULL || temperature_c == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -353,61 +357,23 @@ esp_err_t bmp390_read(bmp390_t *dev, float *pressure_hpa,
     return ESP_ERR_INVALID_STATE;
   }
 
-  /*
-   * Start one forced measurement.
-   *
-   * PWR_CTRL:
-   *
-   * 0x03 = pressure + temperature enabled
-   * 0x04 = forced mode
-   *
-   * Therefore 0x07.
-   */
-  esp_err_t err = write_reg(dev, BMP390_REG_PWR_CTRL,
-                            BMP390_PWR_PRESS_TEMP | (BMP390_MODE_FORCED << 4));
+  /* A normal-mode conversion must be complete before its data is consumed. */
+  uint8_t status = 0;
+  esp_err_t err = read_u8(dev, BMP390_REG_STATUS, &status);
 
-  /*
-   * NOTE:
-   *
-   * The mode field occupies bits 5:4.
-   * Forced mode is value 01, hence 0x10.
-   *
-   * So the actual value written above is 0x13.
-   */
   if (err != ESP_OK) {
     return err;
   }
 
-  /*
-   * Wait for both pressure and temperature.
-   */
-  uint8_t status = 0;
-
-  bool ready = false;
-
-  for (uint32_t i = 0; i < BMP390_READ_TIMEOUT_MS; ++i) {
-    err = read_u8(dev, BMP390_REG_STATUS, &status);
-
-    if (err != ESP_OK) {
-      return err;
-    }
-
-    if ((status & BMP390_STATUS_DRDY_PRESS) &&
-        (status & BMP390_STATUS_DRDY_TEMP)) {
-      ready = true;
-      break;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(1));
-  }
-
-  if (!ready) {
-    return ESP_ERR_TIMEOUT;
+  if ((status & (BMP390_STATUS_DRDY_PRESS | BMP390_STATUS_DRDY_TEMP)) !=
+      (BMP390_STATUS_DRDY_PRESS | BMP390_STATUS_DRDY_TEMP)) {
+    return ESP_ERR_NOT_FINISHED;
   }
 
   /*
    * Check sensor error register.
    */
+
   uint8_t sensor_error = 0;
 
   err = read_u8(dev, BMP390_REG_ERR, &sensor_error);
@@ -416,20 +382,33 @@ esp_err_t bmp390_read(bmp390_t *dev, float *pressure_hpa,
     return err;
   }
 
-  if (sensor_error & (BMP390_ERR_FATAL | BMP390_ERR_CMD | BMP390_ERR_CONF)) {
-    ESP_LOGE(TAG, "Sensor error: 0x%02X", sensor_error);
+  if (sensor_error != 0) {
+    ESP_LOGW(TAG, "BMP390 ERR_REG=0x%02X", sensor_error);
 
-    return ESP_FAIL;
+    if (sensor_error & BMP390_ERR_FATAL) {
+      ESP_LOGW(TAG, "BMP390 fatal error");
+    }
+
+    if (sensor_error & BMP390_ERR_CMD) {
+      ESP_LOGW(TAG, "BMP390 command error");
+    }
+
+    if (sensor_error & BMP390_ERR_CONF) {
+      ESP_LOGW(TAG, "BMP390 configuration error");
+    }
   }
 
   /*
-   * Read pressure and temperature together.
+   * Read pressure + temperature.
    */
+
   uint8_t data[BMP390_DATA_LENGTH];
 
   err = read_reg(dev, BMP390_REG_DATA, data, sizeof(data));
 
   if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to read BMP390 data: %s", esp_err_to_name(err));
+
     return err;
   }
 
@@ -440,13 +419,11 @@ esp_err_t bmp390_read(bmp390_t *dev, float *pressure_hpa,
   /*
    * Bosch compensation.
    */
+
   const double temperature = compensate_temperature(dev, raw_temperature);
 
   const double pressure = compensate_pressure(dev, raw_pressure);
 
-  /*
-   * BMP390 returns pressure in Pa.
-   */
   *temperature_c = (float)temperature;
   *pressure_hpa = (float)(pressure / 100.0);
 
