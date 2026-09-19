@@ -1,7 +1,6 @@
 #include "mlx90393.h"
 
-#define MLX90393_ADDR                                                          \
-  0x0C // unmodified - both a_0 and a_1 are shorted to ground
+#include "esp_log.h"
 
 static esp_err_t reg_read(mlx90393_t *device, uint8_t reg, uint8_t *value) {
   if (device == NULL || device->i2c_device == NULL || value == NULL) {
@@ -22,6 +21,23 @@ static esp_err_t reg_write(mlx90393_t *device, uint8_t reg, uint8_t val) {
   return i2c_master_transmit(device->i2c_device, data, sizeof(data), 100);
 }
 
+static esp_err_t mlx90393_command(mlx90393_t *sensor, uint8_t command,
+                                  uint8_t *response, size_t response_len) {
+  esp_err_t ret;
+
+  ret = i2c_master_transmit(sensor->i2c_device, &command, 1, 100);
+
+  if (ret != ESP_OK) {
+    return ret;
+  }
+
+  if (response && response_len > 0) {
+    ret = i2c_master_receive(sensor->i2c_device, response, response_len, 100);
+  }
+
+  return ret;
+}
+
 esp_err_t mlx90393_init(i2c_master_bus_handle_t bus_handle,
                         mlx90393_t *device) {
   if (bus_handle == NULL || device == NULL) {
@@ -40,6 +56,43 @@ esp_err_t mlx90393_init(i2c_master_bus_handle_t bus_handle,
   if (err != ESP_OK) {
     return err;
   }
+
+  return ESP_OK;
+}
+
+esp_err_t mlx90393_measure(mlx90393_t *sensor, mag_t *data) {
+  if (sensor == NULL || sensor->i2c_device == NULL || data == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  uint8_t cmd = CMD_SM;
+  uint8_t status;
+  uint8_t rx[7];
+
+  // Start single measurement: X + Y + Z
+  esp_err_t ret =
+      i2c_master_transmit_receive(sensor->i2c_device, &cmd, 1, &status, 1, 100);
+
+  if (ret != ESP_OK) {
+    return ret;
+  }
+
+  // Give the conversion time to complete.
+  vTaskDelay(pdMS_TO_TICKS(10));
+
+  // Read measurement: X + Y + Z
+  cmd = CMD_RM;
+
+  ret = i2c_master_transmit_receive(sensor->i2c_device, &cmd, 1, rx, sizeof(rx),
+                                    100);
+
+  if (ret != ESP_OK) {
+    return ret;
+  }
+
+  data->x = (int16_t)((rx[1] << 8) | rx[2]);
+  data->y = (int16_t)((rx[3] << 8) | rx[4]);
+  data->z = (int16_t)((rx[5] << 8) | rx[6]);
 
   return ESP_OK;
 }
