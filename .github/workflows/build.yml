@@ -1,20 +1,15 @@
 name: Firmware Build
 
 on:
-  workflow_run:
-    workflows: ["Firmware Security Analysis"]
-    types:
-      - completed
+  workflow_call:
 
 jobs:
   build:
-    # Only build if Static Analysis succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
-
+    name: Build firmware
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
