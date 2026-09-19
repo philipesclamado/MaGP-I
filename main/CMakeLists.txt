@@ -5,6 +5,7 @@ idf_component_register(
         "drivers/nmea_parser.c"
         "drivers/bmp390.c"
         "drivers/mpu6050.c"
+        "drivers/mlx90393.c"
 
     INCLUDE_DIRS
         "../include"
